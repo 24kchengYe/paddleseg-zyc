@@ -1,0 +1,70 @@
+1、训练需要配置对应模型net的yml文件，参考paddleseg官网，定义超参数和预训练模型（主干网络backbone）
+	A、既可将所有参数配置齐全在一个yml，参考5
+	B、适合小白：也可在配置一个全局yml如deepglobe，采用更加耦合的配置设计，将数据、优化器、损失函数等共性的配置都放在一个单独的配置文件下面。当我们尝试换新的网络结构的时候，只需要关注模型切换即可，避免了切换模型重新调节这些共性参数的繁琐节奏，避免出错（例如我们要更改deeplabv3p_resnet50_os8_cityscapes_1024x512_80k.yml 文件的配置，则会发现该文件还依赖（base）cityscapes.yml文件。此时，我们就需要同步打开 cityscapes.yml 文件进行相应参数的设置，同时需要的注意的是，deeplabv3p_resnet50_os8_cityscapes_1024x512_80k.yml 文件的参数可以覆盖（base）cityscapes.yml文件的参数，即前者配置文件优于后者文件；另外，如果在命令行中指定了yaml文件中出现的参数，则命令行的配置优于yaml文件。（如：根据你的机器配置在命令行中调整batch_size，无需修改configs中预设的yaml文件））。
+
+2、训练过程既可以通过文件train、val、predict等python文件开启，也可以通过命令行开启，有以下方式：
+	A、通过文件开启：需要定义三个文件对应的default，包括yml文件路径（train、val、predict）、训练输出模型存储位置（train）、训练输出模型参数路径（val、predict）以及测试数据输出位置（predict）等
+	B、通过命令行开启：具体参考官网https://github.com/PaddlePaddle/PaddleSeg/blob/release/2.8/docs/whole_process.md
+
+3、train.txt、val.txt、test.txt指定训练集、验证集和测试集，需要注意的是，输入为8位通道彩图（原图）和0-1灰度单通道图（标注），已写好相应转换文件data中的test1-2-3.py。
+
+4、（更多可参考使用官网https://github.com/PaddlePaddle/VisualDL/blob/develop/README_CN.md）可视化结果：visualdl --logdir output/model/
+
+
+5、一些超参数的设置：
+batch_size: 4  # Set the number of pictures sent to the network at one iteration. Generally speaking, the larger the video memory of the machine you are using, the higher the batch_size value.
+iters: 1000  # Number of iterations
+
+batch_size: 4  #设定batch_size的值即为迭代一次送入网络的图片数量，一般显卡显存越大，batch_size的值可以越大。如果使用多卡训练，总得batch size等于该batch size乘以卡数。
+iters: 1000    #模型训练迭代的轮数
+
+train_dataset:  #训练数据设置
+  type: Dataset #指定加载数据集的类。数据集类的代码在`PaddleSeg/paddleseg/datasets`目录下。
+  dataset_root: data/optic_disc_seg #数据集路径
+  train_path: data/optic_disc_seg/train_list.txt  #数据集中用于训练的标识文件
+  num_classes: 2  #指定类别个数（背景也算为一类）
+  mode: train #表示用于训练
+  transforms: #模型训练的数据预处理方式。
+    - type: ResizeStepScaling #将原始图像和标注图像随机缩放为0.5~2.0倍
+      min_scale_factor: 0.5
+      max_scale_factor: 2.0
+      scale_step_size: 0.25
+    - type: RandomPaddingCrop #从原始图像和标注图像中随机裁剪512x512大小
+      crop_size: [512, 512]
+    - type: RandomHorizontalFlip  #对原始图像和标注图像随机进行水平反转
+    - type: RandomDistort #对原始图像进行亮度、对比度、饱和度随机变动，标注图像不变
+      brightness_range: 0.5
+      contrast_range: 0.5
+      saturation_range: 0.5
+    - type: Normalize #对原始图像进行归一化，标注图像保持不变
+
+val_dataset:  #验证数据设置
+  type: Dataset #指定加载数据集的类。数据集类的代码在`PaddleSeg/paddleseg/datasets`目录下。
+  dataset_root: data/optic_disc_seg #数据集路径
+  val_path: data/optic_disc_seg/val_list.txt  #数据集中用于验证的标识文件
+  num_classes: 2  #指定类别个数（背景也算为一类）
+  mode: val #表示用于验证
+  transforms: #模型验证的数据预处理的方式
+    - type: Normalize #对原始图像进行归一化，标注图像保持不变
+
+optimizer: #设定优化器的类型
+  type: sgd #采用SGD（Stochastic Gradient Descent）随机梯度下降方法为优化器
+  momentum: 0.9 #设置SGD的动量
+  weight_decay: 4.0e-5 #权值衰减，使用的目的是防止过拟合
+
+lr_scheduler: # 学习率的相关设置
+  type: PolynomialDecay # 一种学习率类型。共支持12种策略
+  learning_rate: 0.01 # 初始学习率
+  power: 0.9
+  end_lr: 0
+
+loss: #设定损失函数的类型
+  types:
+    - type: CrossEntropyLoss  #CE损失
+  coef: [1, 1, 1] # PP-LiteSeg有一个主loss和两个辅助loss，coef表示权重，所以 total_loss = coef_1 * loss_1 + .... + coef_n * loss_n
+
+model:  #模型说明
+  type: PPLiteSeg  #设定模型类别
+  backbone:  # 设定模型的backbone，包括名字和预训练权重
+    type: STDC2
+    pretrained: https://bj.bcebos.com/paddleseg/dygraph/PP_STDCNet2.tar.gz
